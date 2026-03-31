@@ -1,30 +1,32 @@
 import {
   InnerTextNode,
-  Node,
+  fupNode,
   fupMountNodeToDom,
   fupSaveSnapshot,
   State,
   fupDiff,
   fupReRender,
-} from "./fup";
+} from "./fup.ts";
 
 let app: HTMLElement = document.getElementById("app")!;
 
-class CustomNode extends Node {
+class CustomNode extends fupNode {
   constructor() {
-    super("h1", {}, [new InnerTextNode("Hello, World!")]);
+    super("div", {}, []);
+  }
+  render() {
+    this.children = [new InnerTextNode("Hello World"), new ButtonNode()];
   }
 }
 
-class ButtonNode extends Node {
+class ButtonNode extends fupNode {
   private count: State<number>;
   constructor() {
     super("button");
     let test = () => {
       this.count.setValue(this.count.getValue() + 1);
-      console.log(this.count);
-      fupDiff(oldVdom, vdom);
-      reRender(vdom);
+      let diff = fupDiff(oldVdom, vdom);
+      fupReRender(vdom, app, 0);
       oldVdom = fupSaveSnapshot(vdom);
     };
     this.count = this.NewState<number>(0);
@@ -35,14 +37,7 @@ class ButtonNode extends Node {
   }
 }
 
-let vdom = new ButtonNode();
-let oldVdom = fupSaveSnapshot(vdom);
-fupMountNodeToDom(vdom, app);
-console.log(vdom.isNew);
+let vdom = new CustomNode();
 
-function reRender(node: Node) {
-  if (node.isNew) {
-    app.innerHTML = "";
-    fupMountNodeToDom(node, app);
-  }
-}
+fupMountNodeToDom(vdom, app);
+let oldVdom = fupSaveSnapshot(vdom);
