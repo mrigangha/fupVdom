@@ -2,10 +2,8 @@ import {
   InnerTextNode,
   fupNode,
   fupMountNodeToDom,
-  fupSaveSnapshot,
   State,
-  fupDiff,
-  fupReRender,
+  ButtonNode,
 } from "./fup.ts";
 
 let app: HTMLElement = document.getElementById("app")!;
@@ -13,31 +11,34 @@ let app: HTMLElement = document.getElementById("app")!;
 class CustomNode extends fupNode {
   constructor() {
     super("div", {}, []);
+    this.count = this.NewState<number>(10);
   }
+  count: State<number>;
   render() {
-    this.children = [new InnerTextNode("Hello World"), new ButtonNode()];
-  }
-}
-
-class ButtonNode extends fupNode {
-  private count: State<number>;
-  constructor() {
-    super("button");
     let test = () => {
       this.count.setValue(this.count.getValue() + 1);
-      let diff = fupDiff(oldVdom, vdom);
-      fupReRender(vdom, app, 0);
-      oldVdom = fupSaveSnapshot(vdom);
     };
-    this.count = this.NewState<number>(0);
-    this.props = { onclick: test };
-  }
-  render() {
-    this.children = [new InnerTextNode(this.count.getValue().toString())];
+    let test2 = () => {
+      this.count.setValue(this.count.getValue() - 1);
+    };
+    if (this.count.getValue() >= 10) {
+      return [
+        new ButtonNode({ onclick: test2 }, this.count.getValue().toString()),
+        new InnerTextNode(this.count.getValue().toString()),
+        new ButtonNode({ onclick: test }, this.count.getValue().toString()),
+        new InnerTextNode(this.count.getValue().toString()),
+        new InnerTextNode(this.count.getValue().toString()),
+      ];
+    } else {
+      return [
+        new ButtonNode({ onclick: test2 }, this.count.getValue().toString()),
+        new InnerTextNode(this.count.getValue().toString()),
+        new ButtonNode({ onclick: test }, this.count.getValue().toString()),
+      ];
+    }
   }
 }
 
 let vdom = new CustomNode();
 
 fupMountNodeToDom(vdom, app);
-let oldVdom = fupSaveSnapshot(vdom);

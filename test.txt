@@ -1,0 +1,19 @@
+ if (node.attributeUpdateCode === ReconcileCode.NEW_TAG) {
+      container.replaceChild(
+        fupCreateDomTreeFromNode(node),
+        container.childNodes[index],
+      );
+      return;
+    }
+    if (node.stateUpdateCode === ReconcileCode.NEW_TAG) {
+      container.replaceChild(
+        fupCreateDomTreeFromNode(node),
+        container.childNodes[index],
+      );
+    }
+    if (node.attributeUpdateCode === ReconcileCode.NEW_PROPS) {
+      container.replaceChild(
+        fupCreateDomTreeFromNode(node),
+        container.childNodes[index],
+      );
+    }

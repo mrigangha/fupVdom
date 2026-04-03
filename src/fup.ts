@@ -1,12 +1,29 @@
+enum ReconcileCode {
+  NONE,
+  NEW_TAG,
+  NEW_STATE,
+  NEW_PROPS,
+  MUTATION_CHILDREN,
+  UNMOUNT,
+  NEW_TEXT,
+  MOUNT,
+}
+
 export class fupNode {
   constructor(
     public tag: string = "div",
     public props: Record<string, string> = {},
     public children: fupNode[] = [],
-    public isNew: boolean = true,
+    public patchList: ReconcileCode[] = [],
     private states: State<any>[] = [],
   ) {}
-  render() {}
+  public newChildKeys: number[] = [];
+  public el: Node | null = null;
+  render(): fupNode[] {
+    return [];
+  }
+
+  computed() {}
   NewState<T>(value: T): State<T> {
     const state = new State(this, value);
     this.states.push(state);
@@ -17,7 +34,7 @@ export class fupNode {
   }
 }
 
-let mLOL = false;
+let oldVdom: fupNode | null = null;
 
 export class State<T> {
   constructor(
@@ -25,8 +42,11 @@ export class State<T> {
     public value: T,
   ) {}
   setValue(value: T) {
-    mLOL = true;
     this.value = value;
+    ReCreateNewVdom(currentVDOM);
+    fupDiff(oldVDOM, currentVDOM);
+    fupReRender(currentVDOM, app, 0);
+    oldVDOM = fupSaveSnapshot(currentVDOM);
   }
   getValue(): T {
     return this.value;
@@ -40,17 +60,48 @@ export class InnerTextNode extends fupNode {
   }
 }
 
-export function fupMountNodeToDom(node: fupNode, container: HTMLElement) {
-  container.appendChild(fupCreateDomTreeFromNode(node));
+export class ButtonNode extends fupNode {
+  public text: InnerTextNode;
+  constructor(props: Record<string, string>, text: string) {
+    super("button");
+    this.props = props;
+    this.text = new InnerTextNode(text);
+  }
+  render(): fupNode[] {
+    return [this.text];
+  }
 }
 
-let oldNode: fupNode | null = null;
+function ReCreateNewVdom(node: fupNode) {
+  node.computed();
+  let children: fupNode[] = node.render();
+  node.children = children;
+  node.children = children;
+  for (let i = 0; i < node.children.length; i++) {
+    ReCreateNewVdom(node.children[i]);
+  }
+}
+
+export function fupMountNodeToDom(node: fupNode, container: HTMLElement) {
+  currentVDOM = node;
+  ReCreateNewVdom(node);
+  fupCreateDomTreeFromNode(node);
+  container.appendChild(node.el);
+  oldVDOM = fupSaveSnapshot(node);
+}
+
+let currentVDOM: fupNode | null = null;
+let oldVDOM: fupNode | null = null;
 
 export function fupSaveSnapshot(node: fupNode): fupNode {
   if (node.tag === "textNode") {
-    return new InnerTextNode(node.text);
+    let textnode = new InnerTextNode(node.text);
+    textnode.el = node.el;
+    return textnode;
   }
   let copy_node = new fupNode(node.tag);
+
+  copy_node.el = node.el;
   for (const state of node.GetStates()) {
     copy_node.NewState(state.getValue());
   }
@@ -60,18 +111,19 @@ export function fupSaveSnapshot(node: fupNode): fupNode {
   for (const child of node.children) {
     copy_node.children.push(fupSaveSnapshot(child));
   }
-  oldNode = copy_node;
   return copy_node;
 }
 
 function fupCreateDomTreeFromNode(node: fupNode) {
-  node.isNew = false;
+  node.patchList = [];
+
   if (node instanceof InnerTextNode) {
     const el = document.createTextNode(node.text);
+    node.el = el;
     return el;
   }
   const el = document.createElement(node.tag);
-  node.render();
+  node.el = el;
   for (const [key, value] of Object.entries(node.props)) {
     if (typeof value === "function") {
       const event = key.replace("on", "").toLowerCase(); // "onclick" → "click"
@@ -89,72 +141,111 @@ function fupCreateDomTreeFromNode(node: fupNode) {
 
 export function fupDiff(oldNode: fupNode, newNode: fupNode): boolean {
   let isDiff = false;
+
+  newNode.el = oldNode.el;
   if (oldNode.tag !== newNode.tag) {
-    newNode.isNew = true;
+    newNode.patchList.push(ReconcileCode.NEW_TAG);
     isDiff = true;
   }
-  if (oldNode.GetStates().length !== newNode.GetStates().length) {
-    newNode.isNew = true;
-    isDiff = true;
-  } else {
-    for (let i = 0; i < oldNode.GetStates().length; i++) {
-      if (
-        oldNode.GetStates()[i].getValue() !== newNode.GetStates()[i].getValue()
-      ) {
-        newNode.isNew = true;
-        isDiff = true;
-      }
+  if (oldNode instanceof InnerTextNode && newNode instanceof InnerTextNode) {
+    if (oldNode.text != newNode.text) {
+      newNode.patchList.push(ReconcileCode.NEW_TEXT);
     }
+    return true;
   }
   if (Object.keys(newNode.props).length !== Object.keys(oldNode.props).length) {
-    newNode.isNew = true;
+    newNode.patchList.push(ReconcileCode.NEW_PROPS);
     isDiff = true;
   } else {
     for (const [key, value] of Object.entries(newNode.props)) {
       if (oldNode.props[key] !== value) {
-        newNode.isNew = true;
+        newNode.patchList.push(ReconcileCode.NEW_PROPS);
         isDiff = true;
       }
     }
   }
 
-  if (oldNode.children.length !== newNode.children.length) {
-    for (let i = 0; i < oldNode.children.length; i++) {
-      isDiff = isDiff || fupDiff(oldNode.children[i], newNode.children[i]);
+  //Unkeyedn Patch
+  if (oldNode instanceof InnerTextNode && newNode instanceof InnerTextNode) {
+    if (oldNode.text != newNode.text) {
+      newNode.patchList.push(ReconcileCode.NEW_TEXT);
     }
-  } else {
-    for (let i = 0; i < oldNode.children.length; i++) {
-      isDiff = isDiff || fupDiff(oldNode.children[i], newNode.children[i]);
-    }
+    return true;
   }
+  const oldLength = oldNode.children.length;
+  const newLength = newNode.children.length;
+  const commonLength = Math.min(oldLength, newLength);
+  let i;
+  let mutation: boolean = false;
+  for (i = 0; i < commonLength; i++) {
+    let diff = fupDiff(oldNode.children[i], newNode.children[i]);
+    mutation = mutation || diff;
+    isDiff = isDiff || diff;
+  }
+  if (mutation) {
+    newNode.patchList.push(ReconcileCode.MUTATION_CHILDREN);
+  }
+  if (oldLength > newLength) {
+    for (let i = commonLength; i < oldLength; i++) {
+      oldNode.el?.removeChild(oldNode.children[i].el);
+    }
+  } else if (oldLength < newLength) {
+    mutation = true;
+    newNode.patchList.push(ReconcileCode.MOUNT);
+    for (let i = commonLength; i < newLength; i++) {
+      newNode.newChildKeys.push(i);
+    }
+
+    // mount new
+  }
+  isDiff = isDiff || mutation;
   return isDiff;
 }
 
-function fupPatchDOM(Node: fupNode, container: Node, index: number = 0) {
+function fupPatchDOM(node: fupNode, container: Node, index: number = 0) {
   if (index === -1) {
     (container as HTMLElement).innerHTML = "";
-    (container as HTMLElement).appendChild(fupCreateDomTreeFromNode(Node));
+    (container as HTMLElement).appendChild(fupCreateDomTreeFromNode(node));
     return;
   } else {
-    container.replaceChild(
-      fupCreateDomTreeFromNode(Node),
-      container.childNodes[index],
-    );
+    for (const patch of node.patchList) {
+      if (node instanceof InnerTextNode && patch == ReconcileCode.NEW_TEXT) {
+        (node.el as Text).textContent = node.text;
+      }
+      if (patch == ReconcileCode.MUTATION_CHILDREN) {
+        for (let i = 0; i < node.children.length; i++) {
+          fupPatchDOM(node.children[i], node.el, i);
+        }
+      }
+      if (patch == ReconcileCode.MOUNT) {
+        node.newChildKeys.map((x) => {
+          node.el?.appendChild(fupCreateDomTreeFromNode(node.children[x]));
+        });
+        node.newChildKeys = [];
+      }
+    }
+    node.patchList = [];
   }
 }
+
+export function patchKeyChildren(
+  node: fupNode,
+  container: Node,
+  index: number,
+) {}
 
 export function fupReRender(
   node: fupNode,
   container: Node,
   index: number = -1,
 ) {
-  if (node.isNew) {
+  if (node.patchList) {
     if (container instanceof HTMLElement) {
       fupPatchDOM(node, container, index);
     }
   } else {
     for (let i = 0; i < node.children.length; i++) {
-      fupReRender(node.children[i], container.childNodes[index], i);
+      fupReRender(node.children[i], node.el, i);
     }
   }
 }
