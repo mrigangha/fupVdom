@@ -153,14 +153,37 @@ export function fupDiff(oldNode: fupNode, newNode: fupNode): boolean {
     }
     return true;
   }
+  let isNewProps = false;
   if (Object.keys(newNode.props).length !== Object.keys(oldNode.props).length) {
+    for (const [key, value] of Object.entries(oldNode.props)) {
+      if (typeof value == "function") {
+        if (value !== newNode.props[key] || newNode.props[key] === undefined) {
+          const event = key.replace("on", "").toLowerCase();
+          oldNode.el?.removeEventListener(
+            event,
+            oldNode.props[key] as EventListenerOrEventListenerObject,
+          );
+        }
+      }
+    }
+    isNewProps = true;
     newNode.patchList.push(ReconcileCode.NEW_PROPS);
     isDiff = true;
   } else {
-    for (const [key, value] of Object.entries(newNode.props)) {
-      if (oldNode.props[key] !== value) {
-        newNode.patchList.push(ReconcileCode.NEW_PROPS);
-        isDiff = true;
+    for (const [key, value] of Object.entries(oldNode.props)) {
+      if (newNode.props[key] === undefined || newNode.props[key] !== value) {
+        if (typeof value === "function") {
+          const event = key.replace("on", "").toLowerCase();
+          oldNode.el?.removeEventListener(
+            event,
+            oldNode.props[key] as EventListenerOrEventListenerObject,
+          );
+        }
+        if (!isNewProps) {
+          newNode.patchList.push(ReconcileCode.NEW_PROPS);
+          isDiff = true;
+          isNewProps = true;
+        }
       }
     }
   }
@@ -203,29 +226,37 @@ export function fupDiff(oldNode: fupNode, newNode: fupNode): boolean {
 }
 
 function fupPatchDOM(node: fupNode, container: Node, index: number = 0) {
-  if (index === -1) {
-    (container as HTMLElement).innerHTML = "";
-    (container as HTMLElement).appendChild(fupCreateDomTreeFromNode(node));
-    return;
-  } else {
-    for (const patch of node.patchList) {
-      if (node instanceof InnerTextNode && patch == ReconcileCode.NEW_TEXT) {
-        (node.el as Text).textContent = node.text;
-      }
-      if (patch == ReconcileCode.MUTATION_CHILDREN) {
-        for (let i = 0; i < node.children.length; i++) {
-          fupPatchDOM(node.children[i], node.el, i);
+  for (const patch of node.patchList) {
+    if (patch == ReconcileCode.NEW_TAG) {
+      let current_elem = node.el;
+      container.replaceChild(fupCreateDomTreeFromNode(node), current_elem);
+    }
+    if (node instanceof InnerTextNode && patch == ReconcileCode.NEW_TEXT) {
+      (node.el as Text).textContent = node.text;
+    }
+    if (patch == ReconcileCode.NEW_PROPS) {
+      for (const [key, value] of Object.entries(node.props)) {
+        if (typeof value === "function") {
+          const event = key.replace("on", "").toLowerCase(); // "onclick" → "click"
+          node.el.addEventListener(event, value as EventListener);
+        } else {
+          node.el.setAttribute(key, value);
         }
       }
-      if (patch == ReconcileCode.MOUNT) {
-        node.newChildKeys.map((x) => {
-          node.el?.appendChild(fupCreateDomTreeFromNode(node.children[x]));
-        });
-        node.newChildKeys = [];
+    }
+    if (patch == ReconcileCode.MUTATION_CHILDREN) {
+      for (let i = 0; i < node.children.length; i++) {
+        fupPatchDOM(node.children[i], node.el, i);
       }
     }
-    node.patchList = [];
+    if (patch == ReconcileCode.MOUNT) {
+      node.newChildKeys.map((x) => {
+        node.el?.appendChild(fupCreateDomTreeFromNode(node.children[x]));
+      });
+      node.newChildKeys = [];
+    }
   }
+  node.patchList = [];
 }
 
 export function patchKeyChildren(

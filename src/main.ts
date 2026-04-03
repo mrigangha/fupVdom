@@ -21,6 +21,10 @@ class CustomNode extends fupNode {
     let test2 = () => {
       this.count.setValue(this.count.getValue() - 1);
     };
+    let test3 = () => {
+      console.log("Updated");
+      this.count.setValue(this.count.getValue() - 1);
+    };
     if (this.count.getValue() >= 10) {
       return [
         new ButtonNode({ onclick: test2 }, this.count.getValue().toString()),
@@ -31,7 +35,7 @@ class CustomNode extends fupNode {
       ];
     } else {
       return [
-        new ButtonNode({ onclick: test2 }, this.count.getValue().toString()),
+        new ButtonNode({ onclick: test3 }, this.count.getValue().toString()),
         new InnerTextNode(this.count.getValue().toString()),
         new ButtonNode({ onclick: test }, this.count.getValue().toString()),
       ];
