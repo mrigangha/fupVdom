@@ -1,4 +1,4 @@
-### A Virtual Dom Implementation
+# A Virtual Dom Implementation
 This is a virtual dom learning experience for me by recreating it in vannila JS or maybe TS.
 
 ## Features Implemented till now..
@@ -7,7 +7,7 @@ This is a virtual dom learning experience for me by recreating it in vannila JS 
 3. States and Updates
 
 
-# Demo
+## Demo
 Below is a demo program it is just a toy nd learning.
 
 ```js
