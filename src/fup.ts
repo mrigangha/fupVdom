@@ -230,6 +230,9 @@ function fupPatchDOM(node: fupNode, container: Node, index: number = 0) {
     if (patch == ReconcileCode.NEW_TAG) {
       let current_elem = node.el;
       container.replaceChild(fupCreateDomTreeFromNode(node), current_elem);
+      node.newChildKeys = [];
+      node.patchList = [];
+      return;
     }
     if (node instanceof InnerTextNode && patch == ReconcileCode.NEW_TEXT) {
       (node.el as Text).textContent = node.text;

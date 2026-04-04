@@ -1,7 +1,14 @@
-A Virtual Dom Implementation
+### A Virtual Dom Implementation
+This is a virtual dom learning experience for me by recreating it in vannila JS or maybe TS.
+
+## Features Implemented till now..
+1. VDOM Tree
+2. Reconcilation of DOM (Till april 4th only UnKeyed is Implemented).
+3. States and Updates
 
 
-below is a demo program it is just a toy nd learning.
+# Demo
+Below is a demo program it is just a toy nd learning.
 
 ```js
 import {
