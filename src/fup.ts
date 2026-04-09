@@ -4,7 +4,6 @@ enum ReconcileCode {
   NEW_STATE,
   NEW_PROPS,
   MUTATION_CHILDREN,
-  UNMOUNT,
   NEW_TEXT,
   MOUNT,
 }
@@ -12,13 +11,17 @@ enum ReconcileCode {
 export class fupNode {
   constructor(
     public tag: string = "div",
-    public props: Record<string, string> = {},
+    public props: Record<string, any> = {},
     public children: fupNode[] = [],
     public patchList: ReconcileCode[] = [],
     private states: State<any>[] = [],
   ) {}
-  public newChildKeys: number[] = [];
+  public newChildKeys: fupNode[][] = [];
   public el: Node | null = null;
+  public key: number | null = null;
+  public childKeyMap: Record<number, number> = {};
+  public reloacte_index: number | null = null;
+
   render(): fupNode[] {
     return [];
   }
@@ -33,8 +36,6 @@ export class fupNode {
     return this.states;
   }
 }
-
-let oldVdom: fupNode | null = null;
 
 export class State<T> {
   constructor(
@@ -54,17 +55,26 @@ export class State<T> {
 }
 
 export class InnerTextNode extends fupNode {
-  constructor(public text: string) {
+  constructor(
+    public text: string,
+    key_: number | null = null,
+  ) {
     super("textNode");
     this.text = text;
+    this.key = key_;
   }
 }
 
 export class ButtonNode extends fupNode {
   public text: InnerTextNode;
-  constructor(props: Record<string, string>, text: string) {
+  constructor(
+    props: Record<string, string>,
+    text: string,
+    key_: number | null = null,
+  ) {
     super("button");
     this.props = props;
+    this.key = key_;
     this.text = new InnerTextNode(text);
   }
   render(): fupNode[] {
@@ -74,17 +84,20 @@ export class ButtonNode extends fupNode {
 
 function ReCreateNewVdom(node: fupNode) {
   node.computed();
-  let children: fupNode[] = node.render();
-  node.children = children;
-  node.children = children;
-  for (let i = 0; i < node.children.length; i++) {
-    ReCreateNewVdom(node.children[i]);
+  node.children = node.render();
+  for (const child of node.children) {
+    ReCreateNewVdom(child);
   }
 }
 
 export function fupMountNodeToDom(node: fupNode, container: HTMLElement) {
   currentVDOM = node;
   ReCreateNewVdom(node);
+  for (let i = 0; i < node.children.length; i++) {
+    if (node.children[i].key) {
+      node.childKeyMap[node.children[i].key] = i;
+    }
+  }
   fupCreateDomTreeFromNode(node);
   container.appendChild(node.el);
   oldVDOM = fupSaveSnapshot(node);
@@ -97,10 +110,15 @@ export function fupSaveSnapshot(node: fupNode): fupNode {
   if (node.tag === "textNode") {
     let textnode = new InnerTextNode(node.text);
     textnode.el = node.el;
+    if (node.key !== null) {
+      textnode.key = node.key;
+    }
     return textnode;
   }
   let copy_node = new fupNode(node.tag);
-
+  if (node.key !== null) {
+    copy_node.key = node.key;
+  }
   copy_node.el = node.el;
   for (const state of node.GetStates()) {
     copy_node.NewState(state.getValue());
@@ -188,38 +206,78 @@ export function fupDiff(oldNode: fupNode, newNode: fupNode): boolean {
     }
   }
 
-  //Unkeyedn Patch
-  if (oldNode instanceof InnerTextNode && newNode instanceof InnerTextNode) {
-    if (oldNode.text != newNode.text) {
-      newNode.patchList.push(ReconcileCode.NEW_TEXT);
-    }
-    return true;
-  }
-  const oldLength = oldNode.children.length;
-  const newLength = newNode.children.length;
-  const commonLength = Math.min(oldLength, newLength);
-  let i;
   let mutation: boolean = false;
-  for (i = 0; i < commonLength; i++) {
-    let diff = fupDiff(oldNode.children[i], newNode.children[i]);
-    mutation = mutation || diff;
-    isDiff = isDiff || diff;
-  }
-  if (mutation) {
-    newNode.patchList.push(ReconcileCode.MUTATION_CHILDREN);
-  }
-  if (oldLength > newLength) {
-    for (let i = commonLength; i < oldLength; i++) {
-      oldNode.el?.removeChild(oldNode.children[i].el);
+  //Unkeyedn Patch
+  if (newNode.key == null) {
+    const oldLength = oldNode.children.length;
+    const newLength = newNode.children.length;
+    const commonLength = Math.min(oldLength, newLength);
+    let i;
+
+    for (i = 0; i < commonLength; i++) {
+      let diff = fupDiff(oldNode.children[i], newNode.children[i]);
+      mutation = mutation || diff;
+      isDiff = isDiff || diff;
     }
-  } else if (oldLength < newLength) {
-    mutation = true;
-    newNode.patchList.push(ReconcileCode.MOUNT);
-    for (let i = commonLength; i < newLength; i++) {
-      newNode.newChildKeys.push(i);
+    if (mutation) {
+      newNode.patchList.push(ReconcileCode.MUTATION_CHILDREN);
+    }
+    if (oldLength > newLength) {
+      for (let i = commonLength; i < oldLength; i++) {
+        oldNode.el?.removeChild(oldNode.children[i].el);
+      }
+    } else if (oldLength < newLength) {
+      if (!mutation) {
+        newNode.patchList.push(ReconcileCode.MUTATION_CHILDREN);
+      }
+      for (let i = commonLength; i < newLength; i++) {
+        newNode.children[i]?.patchList.push(ReconcileCode.MOUNT);
+        newNode.newChildKeys.push(newNode.children[i]);
+      }
+
+      // mount new
+    }
+  } else {
+    newNode.patchList.push(ReconcileCode.MUTATION_CHILDREN);
+    const newKeyMap = new Map<number, { index: number; node: fupNode }>();
+    const unUsedNode: fupNode[] = [];
+    for (let i = 0; i < newNode.children.length; i++) {
+      const k = newNode.children[i].key;
+      if (k != null) newKeyMap.set(k, { index: i, node: newNode.children[i] });
     }
 
-    // mount new
+    const oldKeyMap = new Map<number, { index: number; node: fupNode }>();
+    let domArray: Node[] = [];
+    for (let i = 0; i < oldNode.children.length; i++) {
+      const k = oldNode.children[i].key;
+      if (k == null || !newKeyMap.has(k)) {
+        unUsedNode.push(oldNode.children[i]);
+      }
+      if (k != null) oldKeyMap.set(k, { index: i, node: oldNode.children[i] });
+      domArray.push(oldNode.children[i].el!);
+    }
+
+    let c: number = 0;
+    for (let i = 0; i < newNode.children.length; i++) {
+      const k = newNode.children[i].key;
+      if (k != null && oldKeyMap.has(k)) {
+        const oldIndex = oldKeyMap.get(k)!.index;
+        fupDiff(oldKeyMap.get(k)!.node, newNode.children[i]);
+      } else {
+        if (unUsedNode.length != 0 && c < unUsedNode.length) {
+          fupDiff(unUsedNode[c], newNode.children[i]);
+          c += 1;
+        } else {
+          newNode.children[i]?.patchList.push(ReconcileCode.MOUNT);
+          newNode.newChildKeys.push(newNode.children[i]);
+        }
+      }
+    }
+    if (unUsedNode.length > c) {
+      for (let i = c; i < unUsedNode.length; i++) {
+        oldNode.el?.removeChild(unUsedNode[i].el!);
+      }
+    }
   }
   isDiff = isDiff || mutation;
   return isDiff;
@@ -251,35 +309,34 @@ function fupPatchDOM(node: fupNode, container: Node, index: number = 0) {
       for (let i = 0; i < node.children.length; i++) {
         fupPatchDOM(node.children[i], node.el, i);
       }
+      for (let i = 0; i < node.children.length; i++) {
+        const anchor = node.el.childNodes[i] ?? null;
+        if (node.children[i].el !== anchor) {
+          node.el.insertBefore(node.children[i].el!, anchor);
+        }
+      }
+      // Mount new nodes
+      node.newChildKeys.forEach((x) => fupPatchDOM(x, node.el, -1));
+      node.newChildKeys = [];
     }
     if (patch == ReconcileCode.MOUNT) {
-      node.newChildKeys.map((x) => {
-        node.el?.appendChild(fupCreateDomTreeFromNode(node.children[x]));
-      });
-      node.newChildKeys = [];
+      container.appendChild(fupCreateDomTreeFromNode(node));
     }
   }
   node.patchList = [];
 }
-
-export function patchKeyChildren(
-  node: fupNode,
-  container: Node,
-  index: number,
-) {}
 
 export function fupReRender(
   node: fupNode,
   container: Node,
   index: number = -1,
 ) {
-  if (node.patchList) {
+  if (node.patchList.length > 0) {
     if (container instanceof HTMLElement) {
       fupPatchDOM(node, container, index);
     }
-  } else {
-    for (let i = 0; i < node.children.length; i++) {
-      fupReRender(node.children[i], node.el, i);
-    }
+  }
+  for (let i = 0; i < node.children.length; i++) {
+    fupReRender(node.children[i], node.el, i);
   }
 }
