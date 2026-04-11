@@ -38,7 +38,6 @@ class CustomNode extends fupNode {
         new InnerTextNode(this.count.getValue().toString(), 1),
         new InnerTextNode(this.count.getValue().toString(), 8),
         new ButtonNode({ onclick: test3 }, this.count.getValue().toString(), 9),
-
         new ButtonNode({ onclick: test }, this.count.getValue().toString(), 2),
       ];
     }
